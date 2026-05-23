@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Grafika Komputer - Vector Mode</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="tools-board">
+            <div class="tool-group">
+                <label>Alat Gambar</label>
+                <div class="options">
+                    <button class="option active" id="tool-brush">Kuas</button>
+                    <button class="option" id="tool-line">Garis</button>
+                    <button class="option" id="tool-circle">Lingkaran</button>
+                </div>
+            </div>
+            
+            <div class="tool-group">
+                <label>Manipulasi</label>
+                <div class="options">
+                    <button class="option" id="tool-select">Pointer (Pilih & Edit)</button>
+                    <button class="option" id="tool-fill">Beri Warna (Fill)</button>
+                </div>
+            </div>
+
+            <div class="tool-group">
+                <label>Atribut Garis</label>
+                <div class="options">
+                    <input type="range" id="line-width" min="1" max="10" value="2" title="Ketebalan">
+                    <select id="line-type" title="Tipe Garis">
+                        <option value="solid">Solid</option>
+                        <option value="dashed">Dashed</option>
+                        <option value="dotted">Dotted</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="tool-group">
+                <label>Warna</label>
+                <input type="color" id="color-picker" value="#000000">
+            </div>
+
+            <div class="tool-group">
+                <button class="clear-canvas">Bersihkan Canvas</button>
+            </div>
+        </header>
+
+        <main class="drawing-board">
+            <canvas id="myCanvas"></canvas>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
