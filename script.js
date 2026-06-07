@@ -12,7 +12,6 @@ let selectedShape = null;
 
 let isDrawing = false;
 let selectedTool = "tool-brush";
-let trianglePoints = []; // untuk segitiga (3 klik)
 
 // Variabel Mode Interaksi Pointer
 let interactionMode = null; // 'move', 'scale', 'rotate', 'shearX', 'shearY', null
@@ -21,6 +20,42 @@ let initialAngle = 0;
 let initialScale = 1;
 let initialSkewX = 0;
 let initialSkewY = 0;
+let undoStack = [];
+let redoStack = [];
+
+// Fungsi untuk menyimpan kondisi canvas saat ini ke dalam history stack
+function saveState() {
+  undoStack.push(JSON.stringify(shapes));
+  redoStack = [];
+}
+
+function undo() {
+  if (undoStack.length > 0) {
+    // Simpan kondisi saat ini ke Redo sebelum kembali ke masa lalu
+    redoStack.push(JSON.stringify(shapes));
+    
+    // Ambil state terakhir dari Undo stack
+    let previousState = undoStack.pop();
+    shapes = JSON.parse(previousState);
+    
+    selectedShape = null; // Reset selection agar tidak error
+    redrawCanvas();
+  }
+}
+
+function redo() {
+  if (redoStack.length > 0) {
+    // Simpan kondisi saat ini ke Undo sebelum maju ke depan
+    undoStack.push(JSON.stringify(shapes));
+    
+    // Ambil state dari Redo stack
+    let nextState = redoStack.pop();
+    shapes = JSON.parse(nextState);
+    
+    selectedShape = null;
+    redrawCanvas();
+  }
+}
 
 window.addEventListener("load", () => {
   resizeCanvas();
@@ -34,8 +69,6 @@ function resizeCanvas() {
   redrawCanvas();
 }
 
-// ===================== UTILITIES =====================
-// Mendapatkan bounding box shape dalam koordinat lokal (sebelum transformasi)
 function getBoundingBox(shape) {
   if (shape.type === "circle") {
     return {
@@ -87,7 +120,6 @@ function getBoundingBox(shape) {
   return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 }
 
-// Mencari titik pusat (Centroid) dari sebuah objek
 const calculateCenter = (shape) => {
   if (shape.type === "circle") {
     return { cx: shape.x, cy: shape.y };
@@ -114,7 +146,6 @@ const calculateCenter = (shape) => {
   return { cx: 0, cy: 0 };
 };
 
-// Inverse transform untuk deteksi klik
 const inverseTransformPoint = (mouseX, mouseY, shape) => {
   const center = calculateCenter(shape);
   const scale = shape.scale || 1;
@@ -122,26 +153,19 @@ const inverseTransformPoint = (mouseX, mouseY, shape) => {
   const skewX = shape.skewX || 0;
   const skewY = shape.skewY || 0;
 
-  // Transformasi balik: (mouse) -> lokal
   let dx = mouseX - center.cx;
   let dy = mouseY - center.cy;
 
-  // 1. Inverse shear
-  // Matriks shear: [1, skewX; skewY, 1]
-  // Invers: determinan = 1 - skewX*skewY
   let det = 1 - skewX * skewY;
   let ix = (dx - skewX * dy) / det;
   let iy = (dy - skewY * dx) / det;
 
-  // 2. Inverse rotasi
   let rx = ix * Math.cos(angle) - iy * Math.sin(angle);
   let ry = ix * Math.sin(angle) + iy * Math.cos(angle);
 
-  // 3. Inverse skala
   return { x: rx / scale + center.cx, y: ry / scale + center.cy };
 };
 
-// Mendeteksi area klik (Body, Scale Handle, Rotate Handle, Shear Handles)
 const checkInteraction = (x, y, shape) => {
   const center = calculateCenter(shape);
   const bbox = getBoundingBox(shape);
@@ -199,7 +223,7 @@ const checkInteraction = (x, y, shape) => {
   return null;
 };
 
-// ===================== DRAWING FUNCTIONS =====================
+//drawing function
 const redrawCanvas = () => {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -278,7 +302,6 @@ const drawBoundingBox = (shape) => {
   }
   ctx.translate(-center.cx, -center.cy);
 
-  // Kotak putus-putus
   ctx.beginPath();
   ctx.strokeStyle = "#007BFF";
   ctx.lineWidth = 1;
@@ -291,7 +314,6 @@ const drawBoundingBox = (shape) => {
   );
   ctx.stroke();
 
-  // Handle Rotasi (atas)
   ctx.beginPath();
   ctx.fillStyle = "#007BFF";
   ctx.arc(
@@ -307,13 +329,11 @@ const drawBoundingBox = (shape) => {
   ctx.lineTo(bbox.minX + (bbox.maxX - bbox.minX) / 2, bbox.minY - padding - 10);
   ctx.stroke();
 
-  // Handle Skala (kanan bawah)
   ctx.beginPath();
   ctx.fillStyle = "#FF0000";
   ctx.fillRect(bbox.maxX + padding, bbox.maxY + padding, 10, 10);
   ctx.fill();
 
-  // Handle Shear X (kiri tengah)
   ctx.beginPath();
   ctx.fillStyle = "#8B5CF6";
   ctx.fillRect(
@@ -324,7 +344,6 @@ const drawBoundingBox = (shape) => {
   );
   ctx.fill();
 
-  // Handle Shear Y (bawah tengah)
   ctx.beginPath();
   ctx.fillStyle = "#F59E0B";
   ctx.fillRect(
@@ -338,7 +357,6 @@ const drawBoundingBox = (shape) => {
   ctx.restore();
 };
 
-// ===================== EVENT HANDLERS =====================
 canvas.addEventListener("mousedown", (e) => {
   startX = e.offsetX;
   startY = e.offsetY;
@@ -347,7 +365,8 @@ canvas.addEventListener("mousedown", (e) => {
     if (selectedShape) {
       interactionMode = checkInteraction(startX, startY, selectedShape);
       if (interactionMode) {
-        const center = calculateCenter(selectedShape);
+        saveState();
+        
         initialAngle = selectedShape.rotation || 0;
         initialScale = selectedShape.scale || 1;
         initialSkewX = selectedShape.skewX || 0;
@@ -355,18 +374,23 @@ canvas.addEventListener("mousedown", (e) => {
         return;
       }
     }
-    selectedShape = null;
+    
+    let found = false;
     for (let i = shapes.length - 1; i >= 0; i--) {
       if (checkInteraction(startX, startY, shapes[i])) {
         selectedShape = shapes[i];
         interactionMode = "move";
+        saveState();
+        found = true;
         break;
       }
     }
+    if (!found) selectedShape = null; 
     redrawCanvas();
   } else if (selectedTool === "tool-fill") {
     for (let i = shapes.length - 1; i >= 0; i--) {
       if (checkInteraction(startX, startY, shapes[i])) {
+        saveState();
         shapes[i].isFilled = true;
         shapes[i].fillColor = colorPicker.value;
         redrawCanvas();
@@ -374,42 +398,11 @@ canvas.addEventListener("mousedown", (e) => {
       }
     }
   } else {
-    // Mode menggambar
-    if (selectedTool === "tool-triangle") {
-      trianglePoints.push({ x: startX, y: startY });
-      if (trianglePoints.length === 3) {
-        shapes.push({
-          type: "triangle",
-          points: [...trianglePoints],
-          color: colorPicker.value,
-          lineWidth: sizeSlider.value,
-          lineType: lineTypeSelect.value,
-          isFilled: false,
-          rotation: 0,
-          scale: 1,
-          skewX: 0,
-          skewY: 0,
-        });
-        trianglePoints = [];
-        redrawCanvas();
-      } else {
-        // preview titik
-        redrawCanvas();
-        trianglePoints.forEach((p) => {
-          ctx.beginPath();
-          ctx.fillStyle = "#f97316";
-          ctx.arc(p.x, p.y, 4, 0, 2 * Math.PI);
-          ctx.fill();
-        });
-      }
-      return;
-    }
-
     isDrawing = true;
     currentShape = {
       type: selectedTool.replace("tool-", ""),
       color: colorPicker.value,
-      lineWidth: sizeSlider.value,
+      lineWidth: parseInt(sizeSlider.value),
       lineType: lineTypeSelect.value,
       isFilled: false,
       rotation: 0,
@@ -418,9 +411,15 @@ canvas.addEventListener("mousedown", (e) => {
       skewY: 0,
     };
 
-    if (currentShape.type === "brush")
+    if (currentShape.type === "brush") {
       currentShape.points = [{ x: startX, y: startY }];
-    else if (currentShape.type === "circle") {
+    } else if (currentShape.type === "triangle") {
+      currentShape.points = [
+        { x: startX, y: startY },
+        { x: startX, y: startY },
+        { x: startX, y: startY }
+      ];
+    } else if (currentShape.type === "circle") {
       currentShape.x = startX;
       currentShape.y = startY;
       currentShape.radius = 0;
@@ -444,6 +443,22 @@ canvas.addEventListener("mousedown", (e) => {
 });
 
 canvas.addEventListener("mousemove", (e) => {
+  if (selectedTool === "tool-select") {
+    if (selectedShape) {
+      let mode = checkInteraction(e.offsetX, e.offsetY, selectedShape);
+      if (mode === "move") canvas.style.cursor = "move";
+      else if (mode === "rotate") canvas.style.cursor = "grab";
+      else if (mode === "scale") canvas.style.cursor = "nwse-resize";
+      else if (mode === "shearX") canvas.style.cursor = "ew-resize";
+      else if (mode === "shearY") canvas.style.cursor = "ns-resize";
+      else canvas.style.cursor = "default";
+    } else {
+      canvas.style.cursor = "default";
+    }
+  } else {
+    canvas.style.cursor = "crosshair";
+  }
+
   if (selectedTool === "tool-select" && selectedShape && interactionMode) {
     const center = calculateCenter(selectedShape);
 
@@ -508,6 +523,17 @@ canvas.addEventListener("mousemove", (e) => {
   } else if (isDrawing && currentShape) {
     if (currentShape.type === "brush") {
       currentShape.points.push({ x: e.offsetX, y: e.offsetY });
+    } else if (currentShape.type === "triangle") {
+      let x1 = startX;
+      let y1 = startY;
+      let x2 = e.offsetX;
+      let y2 = e.offsetY;
+
+      currentShape.points = [
+        { x: (x1 + x2) / 2, y: y1 },
+        { x: x1, y: y2 },
+        { x: x2, y: y2 }
+      ];
     } else if (currentShape.type === "circle") {
       currentShape.radius = Math.hypot(startX - e.offsetX, startY - e.offsetY);
     } else if (currentShape.type === "line") {
@@ -526,6 +552,7 @@ canvas.addEventListener("mousemove", (e) => {
 
 canvas.addEventListener("mouseup", () => {
   if (isDrawing && currentShape) {
+    saveState();
     shapes.push(currentShape);
     currentShape = null;
   }
@@ -534,21 +561,46 @@ canvas.addEventListener("mouseup", () => {
   redrawCanvas();
 });
 
-// Ganti tool
+// FITUR SHORTCUTS KEYBOARD (Delete, Undo, Redo)
+window.addEventListener("keydown", (e) => {
+  //Shortcut Delete / Backspace
+  if ((e.key === "Delete" || e.key === "Backspace") && selectedShape) {
+    saveState(); // Catat sebelum dihapus
+    shapes = shapes.filter((shape) => shape !== selectedShape);
+    selectedShape = null;
+    redrawCanvas();
+  }
+
+  //Shortcut Undo (Ctrl + Z)
+  if (e.ctrlKey && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    undo();
+  }
+
+  //Shortcut Redo (Ctrl + Y)
+  if (e.ctrlKey && e.key.toLowerCase() === "y") {
+    e.preventDefault();
+    redo();
+  }
+});
+
+// Ganti tool menu
 toolBtns.forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelector(".options .active").classList.remove("active");
     btn.classList.add("active");
     selectedTool = btn.id;
     selectedShape = null;
-    trianglePoints = [];
     redrawCanvas();
   });
 });
 
+// Bersihkan Canvas
 clearCanvasBtn.addEventListener("click", () => {
-  shapes = [];
-  selectedShape = null;
-  trianglePoints = [];
-  redrawCanvas();
+  if (shapes.length > 0) {
+    saveState(); // Catat sebelum dibersihkan total
+    shapes = [];
+    selectedShape = null;
+    redrawCanvas();
+  }
 });
