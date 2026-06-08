@@ -13,17 +13,16 @@ let selectedShape = null;
 let isDrawing = false;
 let selectedTool = "tool-brush";
 
-// Variabel Mode Interaksi Pointer
-let interactionMode = null; // 'move', 'scale', 'rotate', 'shearX', 'shearY', null
+let interactionMode = null; 
 let startX, startY;
 let initialAngle = 0;
 let initialScale = 1;
 let initialSkewX = 0;
 let initialSkewY = 0;
+
 let undoStack = [];
 let redoStack = [];
 
-// Fungsi untuk menyimpan kondisi canvas saat ini ke dalam history stack
 function saveState() {
   undoStack.push(JSON.stringify(shapes));
   redoStack = [];
@@ -31,27 +30,17 @@ function saveState() {
 
 function undo() {
   if (undoStack.length > 0) {
-    // Simpan kondisi saat ini ke Redo sebelum kembali ke masa lalu
     redoStack.push(JSON.stringify(shapes));
-    
-    // Ambil state terakhir dari Undo stack
-    let previousState = undoStack.pop();
-    shapes = JSON.parse(previousState);
-    
-    selectedShape = null; // Reset selection agar tidak error
+    shapes = JSON.parse(undoStack.pop());
+    selectedShape = null;
     redrawCanvas();
   }
 }
 
 function redo() {
   if (redoStack.length > 0) {
-    // Simpan kondisi saat ini ke Undo sebelum maju ke depan
     undoStack.push(JSON.stringify(shapes));
-    
-    // Ambil state dari Redo stack
-    let nextState = redoStack.pop();
-    shapes = JSON.parse(nextState);
-    
+    shapes = JSON.parse(redoStack.pop());
     selectedShape = null;
     redrawCanvas();
   }
@@ -175,7 +164,6 @@ const checkInteraction = (x, y, shape) => {
 
   const localP = inverseTransformPoint(x, y, shape);
 
-  // Handle Skala (kanan bawah)
   if (
     localP.x > bbox.maxX + padding / 2 &&
     localP.x < bbox.maxX + padding + 10 &&
@@ -184,7 +172,6 @@ const checkInteraction = (x, y, shape) => {
   ) {
     return "scale";
   }
-  // Handle Rotasi (atas tengah)
   if (
     Math.hypot(
       localP.x - (bbox.minX + w / 2),
@@ -193,7 +180,6 @@ const checkInteraction = (x, y, shape) => {
   ) {
     return "rotate";
   }
-  // Handle Shear X (kiri tengah)
   if (
     Math.hypot(
       localP.x - (bbox.minX - padding - 10),
@@ -202,7 +188,6 @@ const checkInteraction = (x, y, shape) => {
   ) {
     return "shearX";
   }
-  // Handle Shear Y (bawah tengah)
   if (
     Math.hypot(
       localP.x - (bbox.minX + w / 2),
@@ -211,7 +196,6 @@ const checkInteraction = (x, y, shape) => {
   ) {
     return "shearY";
   }
-  // Body (di dalam bounding box + padding)
   if (
     localP.x > bbox.minX - padding &&
     localP.x < bbox.maxX + padding &&
@@ -223,7 +207,6 @@ const checkInteraction = (x, y, shape) => {
   return null;
 };
 
-//drawing function
 const redrawCanvas = () => {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -240,6 +223,9 @@ const drawShape = (shape) => {
   ctx.translate(center.cx, center.cy);
   if (shape.rotation) ctx.rotate(shape.rotation);
   if (shape.scale) ctx.scale(shape.scale, shape.scale);
+  
+  ctx.scale(shape.mirrorX || 1, shape.mirrorY || 1);
+
   if (shape.skewX || shape.skewY) {
     ctx.transform(1, shape.skewY || 0, shape.skewX || 0, 1, 0, 0);
   }
@@ -297,6 +283,7 @@ const drawBoundingBox = (shape) => {
   ctx.translate(center.cx, center.cy);
   if (shape.rotation) ctx.rotate(shape.rotation);
   if (shape.scale) ctx.scale(shape.scale, shape.scale);
+  ctx.scale(shape.mirrorX || 1, shape.mirrorY || 1);
   if (shape.skewX || shape.skewY) {
     ctx.transform(1, shape.skewY || 0, shape.skewX || 0, 1, 0, 0);
   }
@@ -366,7 +353,6 @@ canvas.addEventListener("mousedown", (e) => {
       interactionMode = checkInteraction(startX, startY, selectedShape);
       if (interactionMode) {
         saveState();
-        
         initialAngle = selectedShape.rotation || 0;
         initialScale = selectedShape.scale || 1;
         initialSkewX = selectedShape.skewX || 0;
@@ -409,6 +395,8 @@ canvas.addEventListener("mousedown", (e) => {
       scale: 1,
       skewX: 0,
       skewY: 0,
+      mirrorX: 1,
+      mirrorY: 1,
     };
 
     if (currentShape.type === "brush") {
@@ -561,30 +549,37 @@ canvas.addEventListener("mouseup", () => {
   redrawCanvas();
 });
 
-// FITUR SHORTCUTS KEYBOARD (Delete, Undo, Redo)
 window.addEventListener("keydown", (e) => {
-  //Shortcut Delete / Backspace
   if ((e.key === "Delete" || e.key === "Backspace") && selectedShape) {
-    saveState(); // Catat sebelum dihapus
+    saveState();
     shapes = shapes.filter((shape) => shape !== selectedShape);
     selectedShape = null;
     redrawCanvas();
   }
 
-  //Shortcut Undo (Ctrl + Z)
   if (e.ctrlKey && e.key.toLowerCase() === "z") {
     e.preventDefault();
     undo();
   }
 
-  //Shortcut Redo (Ctrl + Y)
   if (e.ctrlKey && e.key.toLowerCase() === "y") {
     e.preventDefault();
     redo();
   }
+
+  if (e.key.toLowerCase() === "h" && selectedShape) {
+    saveState();
+    selectedShape.mirrorX = (selectedShape.mirrorX || 1) * -1;
+    redrawCanvas();
+  }
+
+  if (e.key.toLowerCase() === "v" && selectedShape) {
+    saveState();
+    selectedShape.mirrorY = (selectedShape.mirrorY || 1) * -1;
+    redrawCanvas();
+  }
 });
 
-// Ganti tool menu
 toolBtns.forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelector(".options .active").classList.remove("active");
@@ -595,10 +590,9 @@ toolBtns.forEach((btn) => {
   });
 });
 
-// Bersihkan Canvas
 clearCanvasBtn.addEventListener("click", () => {
   if (shapes.length > 0) {
-    saveState(); // Catat sebelum dibersihkan total
+    saveState();
     shapes = [];
     selectedShape = null;
     redrawCanvas();
